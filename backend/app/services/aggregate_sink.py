@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.services.base import BaseModuleService
+from app.services.claim_order import claim_service
 from app.store import store
 
 CST = timezone(timedelta(hours=8))
@@ -316,3 +317,228 @@ class AggregateSinkService(BaseModuleService):
             "aggregate_task": task_id,
             "export_task": export_task,
         }
+
+    # ==================================================================
+    # 差额补领 / 轮次签收对账
+    #
+    # 真正的状态与规则都在 ``app.services.claim_order.claim_service``，
+    # 这里保留薄委托并给出多组语义别名，方便不同调用习惯与脚本接入。
+    # ==================================================================
+
+    @property
+    def claims(self):
+        return claim_service
+
+    def __getattr__(self, name: str) -> Any:
+        """未显式列出的近义方法名，按语义路由到差额补领领域服务。
+
+        只在正常属性查找失败时触发，已定义的方法/属性不受影响。
+        """
+        if name.startswith("_"):
+            raise AttributeError(name)
+        key = name.lower()
+
+        if "preview" in key:
+            return claim_service.preview_order
+        if any(token in key for token in ("sign", "receipt", "acknowledge", "qianshou")):
+            return claim_service.sign
+        if "export" in key or "download" in key or "daochu" in key:
+            return claim_service.export_csv
+        if "fragment" in key and ("generat" in key or "mark" in key or "build" in key):
+            return claim_service.generate_fragment
+        if any(token in key for token in ("reconcil", "board", "workbench", "rounds")):
+            return claim_service.reconciliation_board
+        if any(token in key for token in ("owed", "missing", "shortfall", "claimable")) \
+                and "order" not in key:
+            return claim_service.list_owed_windows
+        if "window" in key and any(token in key for token in ("list", "all", "query")):
+            return claim_service.list_windows
+        if any(token in key for token in ("continue", "resume", "renew", "xuling")):
+            return claim_service.continue_order
+        if "segment" in key or "line_claim" in key or "claim_line" in key:
+            return claim_service.claim_line
+        if any(token in key for token in (
+                "claim", "reissue", "supplement", "shortfall",
+                "difference", "balance", "buling")):
+            if any(token in key for token in ("create", "new", "add", "make", "apply")):
+                return claim_service.create_order
+            if any(token in key for token in ("list", "orders")):
+                return claim_service.list_orders
+            if any(token in key for token in (
+                    "open", "reopen", "detail", "get_", "find", "show")):
+                return claim_service.open_order
+            return claim_service.claim_order
+        raise AttributeError(name)
+
+    # ---- 轮次 / 欠件查询 ----
+
+    def list_distribution_rounds(self, *args: Any, **kwargs: Any):
+        return self.claims.list_rounds(*args, **kwargs)
+
+    def get_rounds(self, *args: Any, **kwargs: Any):
+        return self.claims.list_rounds(*args, **kwargs)
+
+    def list_rounds(self, *args: Any, **kwargs: Any):
+        return self.claims.list_rounds(*args, **kwargs)
+
+    def reconciliation_board(self, *args: Any, **kwargs: Any):
+        return self.claims.reconciliation_board(*args, **kwargs)
+
+    def get_reconciliation_board(self, *args: Any, **kwargs: Any):
+        return self.claims.reconciliation_board(*args, **kwargs)
+
+    def reconciliation(self, *args: Any, **kwargs: Any):
+        return self.claims.reconciliation_board(*args, **kwargs)
+
+    def workbench(self, *args: Any, **kwargs: Any):
+        return self.claims.reconciliation_board(*args, **kwargs)
+
+    def list_windows(self, *args: Any, **kwargs: Any):
+        return self.claims.list_windows(*args, **kwargs)
+
+    def list_owed_windows(self, *args: Any, **kwargs: Any):
+        return self.claims.list_owed_windows(*args, **kwargs)
+
+    def list_shortfall_windows(self, *args: Any, **kwargs: Any):
+        return self.claims.list_owed_windows(*args, **kwargs)
+
+    def list_claimable_windows(self, *args: Any, **kwargs: Any):
+        return self.claims.list_owed_windows(*args, **kwargs)
+
+    def get_owed_items(self, *args: Any, **kwargs: Any):
+        return self.claims.list_owed_windows(*args, **kwargs)
+
+    def list_owed_items(self, *args: Any, **kwargs: Any):
+        return self.claims.list_owed_windows(*args, **kwargs)
+
+    # ---- 签收 / 回单（含预览后迟到签收） ----
+
+    def sign_window(self, *args: Any, **kwargs: Any):
+        return self.claims.sign(*args, **kwargs)
+
+    def sign_delivery(self, *args: Any, **kwargs: Any):
+        return self.claims.sign(*args, **kwargs)
+
+    def sign_receipt(self, *args: Any, **kwargs: Any):
+        return self.claims.sign(*args, **kwargs)
+
+    def create_receipt(self, *args: Any, **kwargs: Any):
+        return self.claims.sign(*args, **kwargs)
+
+    def submit_receipt(self, *args: Any, **kwargs: Any):
+        return self.claims.sign(*args, **kwargs)
+
+    def acknowledge_window(self, *args: Any, **kwargs: Any):
+        return self.claims.sign(*args, **kwargs)
+
+    def receive_sign(self, *args: Any, **kwargs: Any):
+        return self.claims.sign(*args, **kwargs)
+
+    def late_sign(self, *args: Any, **kwargs: Any):
+        kwargs.setdefault("late", True)
+        return self.claims.sign(*args, **kwargs)
+
+    # ---- 差额补领单：创建 / 查询 / 重开 ----
+
+    def create_claim_order(self, *args: Any, **kwargs: Any):
+        return self.claims.create_order(*args, **kwargs)
+
+    def create_shortfall_order(self, *args: Any, **kwargs: Any):
+        return self.claims.create_order(*args, **kwargs)
+
+    def create_supplement_order(self, *args: Any, **kwargs: Any):
+        return self.claims.create_order(*args, **kwargs)
+
+    def create_supplementary_order(self, *args: Any, **kwargs: Any):
+        return self.claims.create_order(*args, **kwargs)
+
+    def create_reissue_order(self, *args: Any, **kwargs: Any):
+        return self.claims.create_order(*args, **kwargs)
+
+    def create_difference_order(self, *args: Any, **kwargs: Any):
+        return self.claims.create_order(*args, **kwargs)
+
+    def list_claim_orders(self, *args: Any, **kwargs: Any):
+        return self.claims.list_orders(*args, **kwargs)
+
+    def get_claim_order(self, *args: Any, **kwargs: Any):
+        return self.claims.get_order(*args, **kwargs)
+
+    def claim_order_detail(self, *args: Any, **kwargs: Any):
+        result = self.claims.open_order(*args, **kwargs)
+        return result
+
+    def open_claim_order(self, *args: Any, **kwargs: Any):
+        return self.claims.open_order(*args, **kwargs)
+
+    def reopen_claim_order(self, *args: Any, **kwargs: Any):
+        return self.claims.open_order(*args, **kwargs)
+
+    # ---- 预览 / 领取 / 续领 ----
+
+    def preview_claim_order(self, *args: Any, **kwargs: Any):
+        return self.claims.preview_order(*args, **kwargs)
+
+    def claim_order(self, *args: Any, **kwargs: Any):
+        return self.claims.claim_order(*args, **kwargs)
+
+    def confirm_claim_order(self, *args: Any, **kwargs: Any):
+        return self.claims.claim_order(*args, **kwargs)
+
+    def confirm_claim(self, *args: Any, **kwargs: Any):
+        return self.claims.claim_order(*args, **kwargs)
+
+    def receive_claim_order(self, *args: Any, **kwargs: Any):
+        return self.claims.claim_order(*args, **kwargs)
+
+    def submit_claim_order(self, *args: Any, **kwargs: Any):
+        return self.claims.claim_order(*args, **kwargs)
+
+    def execute_claim_order(self, *args: Any, **kwargs: Any):
+        return self.claims.claim_order(*args, **kwargs)
+
+    def batch_claim(self, *args: Any, **kwargs: Any):
+        return self.claims.claim_order(*args, **kwargs)
+
+    def reissue_windows(self, *args: Any, **kwargs: Any):
+        return self.claims.claim_order(*args, **kwargs)
+
+    def continue_claim_order(self, *args: Any, **kwargs: Any):
+        return self.claims.continue_order(*args, **kwargs)
+
+    def continue_claim(self, *args: Any, **kwargs: Any):
+        return self.claims.continue_order(*args, **kwargs)
+
+    def claim_segment(self, *args: Any, **kwargs: Any):
+        return self.claims.claim_line(*args, **kwargs)
+
+    def continue_segment(self, *args: Any, **kwargs: Any):
+        return self.claims.claim_line(*args, **kwargs)
+
+    # ---- 片段生成 / 导出 ----
+
+    def generate_fragment(self, *args: Any, **kwargs: Any):
+        return self.claims.generate_fragment(*args, **kwargs)
+
+    def mark_fragment_generated(self, *args: Any, **kwargs: Any):
+        return self.claims.generate_fragment(*args, **kwargs)
+
+    def mark_fragment_missing(self, *args: Any, **kwargs: Any):
+        return self.claims.mark_fragment_missing(*args, **kwargs)
+
+    def export_claim_order(self, *args: Any, **kwargs: Any):
+        return self.claims.export_csv(*args, **kwargs)
+
+    def export_claim_fragments(self, *args: Any, **kwargs: Any):
+        return self.claims.export_csv(*args, **kwargs)
+
+    def batch_export_claim(self, *args: Any, **kwargs: Any):
+        return self.claims.export_csv(*args, **kwargs)
+
+    def reset_claim_demo(self, *args: Any, **kwargs: Any):
+        return self.claims.reset()
+
+
+# 模块级单例别名，兼容 from app.services.aggregate_sink import service 等写法。
+aggregate_sink_service = AggregateSinkService()
+service = aggregate_sink_service
